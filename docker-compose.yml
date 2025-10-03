@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  wordle-bot:
+    build: .
+    container_name: wordle-leaderboard-bot
+    environment:
+      - DISCORD_TOKEN=${DISCORD_TOKEN}
+      - DATABASE_PATH=/app/data/wordle_leaderboard.db
+      - AUTO_POST_ENABLED=true
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sqlite3; sqlite3.connect('/app/data/wordle_leaderboard.db')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
