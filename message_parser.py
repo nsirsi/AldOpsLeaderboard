@@ -113,8 +113,13 @@ class WordleMessageParser:
                 logger.warning(f"No player results found in message: {message.id}")
                 return None
             
-            # Determine game date (yesterday's results)
-            game_date = date.today() - timedelta(days=1)
+            # Determine game date based on when this message was posted
+            # WordleBot posts "yesterday's results", so subtract one day from message time
+            try:
+                msg_date = message.created_at.date()
+            except Exception:
+                msg_date = date.today()
+            game_date = msg_date - timedelta(days=1)
             
             # If Wordle number wasn't in the embed/text, derive from date (Wordle #0 = 2021-06-19)
             if not wordle_number:
