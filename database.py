@@ -142,7 +142,7 @@ class WordleDatabase:
                 COUNT(*) as games_played,
                 SUM(score) as total_score,
                 AVG(score) as average_score,
-                COUNT(CASE WHEN success = 1 THEN 1 END) as successful_games,
+                COUNT(CASE WHEN success THEN 1 END) as successful_games,
                 MIN(game_date) as first_game,
                 MAX(game_date) as last_game
             FROM games 
@@ -193,7 +193,7 @@ class WordleDatabase:
                 COUNT(g.id) as games_played,
                 SUM(g.score) as total_score,
                 AVG(g.score) as average_score,
-                COUNT(CASE WHEN g.success = 1 THEN 1 END) as successful_games
+                COUNT(CASE WHEN g.success THEN 1 END) as successful_games
             FROM users u
             LEFT JOIN games g ON u.user_id = g.user_id AND g.game_date >= ?
             GROUP BY u.user_id, u.username, u.display_name
