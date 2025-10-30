@@ -547,16 +547,32 @@ class WordleLeaderboardBot(commands.Bot):
             await interaction.response.defer(ephemeral=True, thinking=True)
 
             try:
-                after_dt = datetime.now(timezone.utc) - timedelta(days=max(1, min(days, 60)))
+                # Calculate date range - Discord's history() works with 'after' datetime
+                requested_days = max(1, min(days, 90))  # Cap at 90 days
+                after_dt = datetime.now(timezone.utc) - timedelta(days=requested_days)
                 processed_messages = 0
                 processed_results = 0
                 total_messages_checked = 0
                 skipped_messages = 0
+                oldest_message_date = None
+                newest_message_date = None
 
-                logger.info(f"Backfill: looking for messages after {after_dt} (going back {days} days)")
+                logger.info(f"Backfill: looking for messages after {after_dt} (requested {days} days, using {requested_days} days)")
+                await interaction.followup.send(
+                    f"🔍 Scanning #{target_channel.name} for WordleBot messages from the last {requested_days} days...",
+                    ephemeral=True
+                )
                 
                 async for msg in target_channel.history(limit=None, after=after_dt, oldest_first=False):
                     total_messages_checked += 1
+                    if newest_message_date is None:
+                        newest_message_date = msg.created_at
+                    oldest_message_date = msg.created_at
+                    
+                    # Small delay every 50 messages to avoid rate limits and keep connection alive
+                    if total_messages_checked % 50 == 0:
+                        await asyncio.sleep(0.1)
+                    
                     if self.parser.is_wordlebot_message(msg):
                         parsed = self.parser.parse_wordlebot_message(msg)
                         if not parsed:
@@ -564,42 +580,70 @@ class WordleLeaderboardBot(commands.Bot):
                             logger.warning(f"Backfill: message {msg.id} detected as WordleBot but failed to parse")
                             continue
                         logger.info(f"Backfill: processing message {msg.id} from {msg.created_at}, wordle_no={parsed.get('wordle_number')}, game_date={parsed.get('game_date')}")
-                        for result in parsed['player_results']:
-                            user_id = result['user_id']
-                            guesses = result['guesses']
-                            success = result['success']
+                        try:
+                            for result in parsed['player_results']:
+                                user_id = result['user_id']
+                                guesses = result['guesses']
+                                success = result['success']
 
-                            user = self.parser.get_user_from_mention(msg, user_id)
-                            if user:
-                                self.db.add_or_update_user(
-                                    user_id=user_id,
-                                    username=user.name,
-                                    display_name=getattr(user, 'display_name', None)
-                                )
-                                if self.db.add_game_result(
-                                    user_id=user_id,
-                                    wordle_number=parsed['wordle_number'],
-                                    game_date=parsed['game_date'],
-                                    guesses=guesses,
-                                    success=success
-                                ):
-                                    processed_results += 1
+                                user = self.parser.get_user_from_mention(msg, user_id)
+                                if user:
+                                    try:
+                                        self.db.add_or_update_user(
+                                            user_id=user_id,
+                                            username=user.name,
+                                            display_name=getattr(user, 'display_name', None)
+                                        )
+                                        if self.db.add_game_result(
+                                            user_id=user_id,
+                                            wordle_number=parsed['wordle_number'],
+                                            game_date=parsed['game_date'],
+                                            guesses=guesses,
+                                            success=success
+                                        ):
+                                            processed_results += 1
+                                        else:
+                                            logger.debug(f"Backfill: duplicate or failed insert for user {user_id} on {parsed['game_date']}")
+                                    except Exception as db_error:
+                                        logger.error(f"Backfill: database error for user {user_id} on {parsed['game_date']}: {db_error}")
                                 else:
-                                    logger.debug(f"Backfill: duplicate or failed insert for user {user_id} on {parsed['game_date']}")
-                            else:
-                                logger.warning(f"Backfill: could not find user {user_id}")
-                        processed_messages += 1
+                                    logger.warning(f"Backfill: could not find user {user_id}")
+                            processed_messages += 1
+                            # Small delay after processing each WordleBot message to keep connection stable
+                            await asyncio.sleep(0.05)
+                        except Exception as parse_error:
+                            logger.error(f"Backfill: error processing message {msg.id}: {parse_error}")
+                            skipped_messages += 1
                     else:
                         # Check if it's a bot message we're skipping
                         if getattr(msg.author, 'bot', False) and 'wordle' in getattr(msg.author, 'name', '').lower():
                             skipped_messages += 1
                             logger.debug(f"Backfill: skipping non-WordleBot message {msg.id} from bot {msg.author.name}")
 
-                logger.info(f"Backfill complete: checked {total_messages_checked} messages, processed {processed_messages} WordleBot messages, skipped {skipped_messages}, added {processed_results} results")
-                await interaction.followup.send(
-                    f"✅ Backfill complete in #{target_channel.name}: processed {processed_messages} WordleBot messages, added {processed_results} results (checked {total_messages_checked} total messages).",
-                    ephemeral=True
+                # Calculate actual date range found
+                date_range_info = ""
+                if oldest_message_date and newest_message_date:
+                    actual_days = (newest_message_date.date() - oldest_message_date.date()).days
+                    date_range_info = f"\n**Date range:** {oldest_message_date.date()} to {newest_message_date.date()} ({actual_days + 1} days)"
+                
+                logger.info(
+                    f"Backfill complete: checked {total_messages_checked} messages, processed {processed_messages} WordleBot messages, "
+                    f"skipped {skipped_messages}, added {processed_results} results. "
+                    f"Date range: {oldest_message_date.date() if oldest_message_date else 'N/A'} to {newest_message_date.date() if newest_message_date else 'N/A'}"
                 )
+                
+                summary = (
+                    f"✅ Backfill complete in #{target_channel.name}:\n"
+                    f"• Processed {processed_messages} WordleBot messages\n"
+                    f"• Added {processed_results} new results\n"
+                    f"• Checked {total_messages_checked} total messages"
+                )
+                if oldest_message_date and newest_message_date:
+                    summary += f"\n• Date range: {oldest_message_date.date()} to {newest_message_date.date()}"
+                if requested_days != days:
+                    summary += f"\n• Note: Requested {days} days, capped at {requested_days} days"
+                
+                await interaction.followup.send(summary, ephemeral=True)
             except Exception as e:
                 logger.error(f"Error during backfill: {e}")
                 await interaction.followup.send("Error during backfill.", ephemeral=True)
