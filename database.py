@@ -108,8 +108,11 @@ class WordleDatabase:
     def add_game_result(self, user_id: int, wordle_number: int, game_date: date, 
                         guesses: int, success: bool):
         """Add a game result to the database"""
-        # Calculate score: guesses + 1 for success, 1 for failure, 0 for no attempt
-        score = guesses + 1 if success else 1
+        # Calculate score per spec:
+        # success: score = 8 - guesses (guesses 1..6 => scores 7..2)
+        # failure (X): score = 1
+        # no attempt: not inserted here; would be 0 if tracked
+        score = (8 - guesses) if success else 1
         with self._conn() as conn:
             with conn.cursor() as cursor:
                 # Check duplicate

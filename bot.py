@@ -65,7 +65,7 @@ class LeaderboardView(discord.ui.View):
                         inline=False
                     )
             
-            embed.set_footer(text="Click buttons to switch periods • Score = Number of guesses + 1 (X = 1, no attempt = 0)")
+            embed.set_footer(text="Click buttons to switch periods • Score = 8 - guesses; X = 1; no attempt = 0")
             
             # Update the message
             await interaction.response.edit_message(embed=embed, view=self)
@@ -285,7 +285,7 @@ class WordleLeaderboardBot(commands.Bot):
                         inline=False
                     )
             
-            embed.set_footer(text="Auto-posted every Monday at 12:01 AM PT • Click buttons to switch periods")
+            embed.set_footer(text="Auto-posted every Monday at 12:01 AM PT • Score = 8 - guesses; X = 1; no attempt = 0")
             await channel.send(embed=embed, view=view)
             
         except Exception as e:
@@ -334,7 +334,7 @@ class WordleLeaderboardBot(commands.Bot):
                             inline=False
                         )
                 
-                embed.set_footer(text="Click buttons to switch periods • Score = Number of guesses + 1 (X = 1, no attempt = 0)")
+                embed.set_footer(text="Click buttons to switch periods • Score = 8 - guesses; X = 1; no attempt = 0")
                 await interaction.response.send_message(embed=embed, view=view)
                 
             except Exception as e:
@@ -464,7 +464,7 @@ class WordleLeaderboardBot(commands.Bot):
                             inline=False
                         )
                 
-                embed.set_footer(text="Click buttons to switch periods • Score = Number of guesses + 1 (X = 1, no attempt = 0)")
+                embed.set_footer(text="Click buttons to switch periods • Score = 8 - guesses; X = 1; no attempt = 0")
                 await interaction.channel.send(embed=embed, view=view)
                 await interaction.followup.send("✅ Interactive leaderboard posted!", ephemeral=True)
                 
@@ -520,7 +520,7 @@ class WordleLeaderboardBot(commands.Bot):
                 inline=False
             )
             
-            embed.set_footer(text="Score = Number of guesses + 1 (X = 1, no attempt = 0)")
+            embed.set_footer(text="Score = 8 - guesses; X = 1; no attempt = 0")
             await interaction.response.send_message(embed=embed, ephemeral=True)
 
         @self.tree.command(name="backfill", description="Admin: backfill recent WordleBot history")
