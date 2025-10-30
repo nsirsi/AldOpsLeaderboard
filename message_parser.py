@@ -12,7 +12,8 @@ class WordleMessageParser:
         # Be tolerant of curly quotes, extra spaces, and punctuation variants
         self.results_header_pattern = re.compile(r"Here are yesterday[’']s results:?", re.IGNORECASE)
         self.wordle_number_pattern = re.compile(r"Wordle\s+No[\.:\s]+(\d+)", re.IGNORECASE)
-        self.score_pattern = re.compile(r"(\d+)/6")
+        # Accept 0-6 or X for failures
+        self.score_pattern = re.compile(r"([0-6]|X)/6", re.IGNORECASE)
         self.user_mention_pattern = re.compile(r"<@!?(\d+)>")
         
     def _message_text(self, message: Message) -> str:
@@ -82,18 +83,25 @@ class WordleMessageParser:
                 # Extract score from the line
                 score_match = self.score_pattern.search(line)
                 if score_match:
-                    guesses = int(score_match.group(1))
-                    user_id = int(user_mentions[0])  # Take first mention
-                    
-                    # Determine if it's a successful game (guesses <= 6)
-                    success = guesses <= 6
-                    
-                    results.append({
-                        'user_id': user_id,
-                        'guesses': guesses,
-                        'success': success,
-                        'raw_line': line.strip()
-                    })
+                    raw = score_match.group(1)
+                    if raw.upper() == 'X':
+                        guesses = 6
+                        success = False
+                    else:
+                        guesses = int(raw)
+                        success = guesses <= 6
+                    # One score applies to all mentions on this line
+                    for uid in user_mentions:
+                        try:
+                            user_id = int(uid)
+                        except Exception:
+                            continue
+                        results.append({
+                            'user_id': user_id,
+                            'guesses': guesses,
+                            'success': success,
+                            'raw_line': line.strip()
+                        })
         
         return results
     
