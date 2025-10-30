@@ -106,9 +106,6 @@ class WordleMessageParser:
             # Extract Wordle number
             text = self._message_text(message)
             wordle_number = self.extract_wordle_number(text)
-            if not wordle_number:
-                logger.warning(f"Could not extract Wordle number from message: {message.id}")
-                return None
             
             # Parse player results
             player_results = self.parse_player_results(message)
@@ -118,6 +115,19 @@ class WordleMessageParser:
             
             # Determine game date (yesterday's results)
             game_date = date.today() - timedelta(days=1)
+            
+            # If Wordle number wasn't in the embed/text, derive from date (Wordle #0 = 2021-06-19)
+            if not wordle_number:
+                try:
+                    epoch = date(2021, 6, 19)
+                    derived = (game_date - epoch).days
+                    if derived >= 0:
+                        wordle_number = derived
+                except Exception:
+                    pass
+            if not wordle_number:
+                logger.warning(f"Could not extract or derive Wordle number from message: {message.id}")
+                return None
             
             return {
                 'wordle_number': wordle_number,
