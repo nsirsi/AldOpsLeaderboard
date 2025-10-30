@@ -26,9 +26,11 @@ A Discord bot that automatically processes WordleBot messages and maintains lead
    pip install -r requirements.txt
    ```
 
-3. Create a `.env` file with your Discord bot token:
+3. Create a `.env` file with your Discord bot token (and Postgres URL if using Supabase):
    ```
    DISCORD_TOKEN=your_discord_bot_token_here
+  # For Supabase/Postgres
+  # DATABASE_URL=postgres://USER:PASSWORD@HOST:PORT/DB
    ```
 
 ### 3. Discord Bot Setup
@@ -74,7 +76,12 @@ The bot automatically:
 
 ## Database
 
-The bot uses SQLite by default (configurable to PostgreSQL for production). The database stores:
+The bot supports both SQLite (local) and PostgreSQL (Supabase) via `DATABASE_URL`.
+
+- If `DATABASE_URL` is set, Postgres is used.
+- Otherwise, it falls back to the local `wordle_leaderboard.db` SQLite file.
+
+The database stores:
 - User information
 - Game results and scores
 - Leaderboard cache for performance
@@ -105,7 +112,8 @@ The bot logs important events and errors. Check console output for debugging inf
 
 ```
 ├── bot.py              # Main bot file
-├── database.py         # Database operations
+├── database.py         # Database operations (SQLite + Postgres via env)
+├── migrations/         # SQL migrations for Postgres
 ├── message_parser.py   # WordleBot message parsing
 ├── config.py          # Configuration
 ├── requirements.txt    # Dependencies

@@ -7,7 +7,10 @@ load_dotenv()
 DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
 BOT_PREFIX = '!'
 
-# Database Configuration
+# Database URL (Postgres)
+DATABASE_URL = os.getenv('DATABASE_URL')  # e.g., postgres://USER:PASSWORD@HOST:PORT/DB
+
+# Database Configuration (SQLite fallback path when DATABASE_URL is not set)
 DATABASE_PATH = 'wordle_leaderboard.db'
 
 # Leaderboard Configuration

@@ -518,6 +518,61 @@ class WordleLeaderboardBot(commands.Bot):
             embed.set_footer(text="Score = Number of guesses + 1 (X = 1, no attempt = 0)")
             await interaction.response.send_message(embed=embed, ephemeral=True)
 
+        @self.tree.command(name="backfill", description="Admin: backfill recent WordleBot history")
+        async def backfill(
+            interaction: discord.Interaction,
+            days: int = 7,
+            channel: Optional[discord.TextChannel] = None
+        ):
+            """Backfill recent history by scanning for WordleBot messages."""
+            # Restrict to users with Manage Guild permission
+            if not interaction.user.guild_permissions.manage_guild:
+                await interaction.response.send_message("You need Manage Server permission to run backfill.", ephemeral=True)
+                return
+
+            target_channel = channel or interaction.channel
+            await interaction.response.defer(ephemeral=True, thinking=True)
+
+            try:
+                after_dt = datetime.now(timezone.utc) - timedelta(days=max(1, min(days, 60)))
+                processed_messages = 0
+                processed_results = 0
+
+                async for msg in target_channel.history(limit=None, after=after_dt):
+                    if self.parser.is_wordlebot_message(msg):
+                        parsed = self.parser.parse_wordlebot_message(msg)
+                        if not parsed:
+                            continue
+                        for result in parsed['player_results']:
+                            user_id = result['user_id']
+                            guesses = result['guesses']
+                            success = result['success']
+
+                            user = self.parser.get_user_from_mention(msg, user_id)
+                            if user:
+                                self.db.add_or_update_user(
+                                    user_id=user_id,
+                                    username=user.name,
+                                    display_name=getattr(user, 'display_name', None)
+                                )
+                                if self.db.add_game_result(
+                                    user_id=user_id,
+                                    wordle_number=parsed['wordle_number'],
+                                    game_date=parsed['game_date'],
+                                    guesses=guesses,
+                                    success=success
+                                ):
+                                    processed_results += 1
+                        processed_messages += 1
+
+                await interaction.followup.send(
+                    f"✅ Backfill complete in #{target_channel.name}: processed {processed_messages} messages, added {processed_results} results.",
+                    ephemeral=True
+                )
+            except Exception as e:
+                logger.error(f"Error during backfill: {e}")
+                await interaction.followup.send("Error during backfill.", ephemeral=True)
+
 # Create bot instance
 bot = WordleLeaderboardBot()
 

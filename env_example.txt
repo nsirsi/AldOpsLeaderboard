@@ -1,5 +1,9 @@
 # Discord Bot Configuration
 DISCORD_TOKEN=your_discord_bot_token_here
 
-# Database Configuration (optional)
-DATABASE_PATH=wordle_leaderboard.db
+# Database Configuration
+# Use Postgres (recommended for deployment)
+DATABASE_URL=postgres://USER:PASSWORD@HOST:PORT/DB
+
+# Or fallback to SQLite locally
+# DATABASE_PATH=wordle_leaderboard.db

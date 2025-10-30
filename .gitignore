@@ -1,3 +1,27 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Environments
+.env
+venv/
+.venv/
+
+# Logs
+*.log
+bot.log
+
+# Databases
+*.db
+wordle_leaderboard.db
+
+# OS/Editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
 # Environment variables
 .env
 .env.local

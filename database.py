@@ -1,117 +1,134 @@
+import os
 import sqlite3
-import asyncio
-from datetime import datetime, date
-from typing import List, Dict, Optional, Tuple
+from datetime import date
+from typing import List, Dict
 import logging
+from config import DATABASE_URL
+
+try:
+    import psycopg
+except Exception:  # psycopg is optional for local sqlite
+    psycopg = None
 
 logger = logging.getLogger(__name__)
 
 class WordleDatabase:
     def __init__(self, db_path: str = 'wordle_leaderboard.db'):
         self.db_path = db_path
+        self.use_postgres = bool(DATABASE_URL)
+        if self.use_postgres and not psycopg:
+            logger.warning("DATABASE_URL is set but psycopg is not installed; falling back to SQLite")
+            self.use_postgres = False
         self.init_database()
+
+    def _conn(self):
+        if self.use_postgres:
+            return psycopg.connect(DATABASE_URL)
+        return sqlite3.connect(self.db_path)
+
+    def _q(self, query: str) -> str:
+        """Adapt placeholder style to the active backend."""
+        if self.use_postgres:
+            return query.replace('?', '%s')
+        return query
     
     def init_database(self):
         """Initialize the database with required tables"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        # Users table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS users (
-                user_id INTEGER PRIMARY KEY,
-                username TEXT NOT NULL,
-                display_name TEXT,
-                first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-        
-        # Games table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS games (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER NOT NULL,
-                wordle_number INTEGER NOT NULL,
-                game_date DATE NOT NULL,
-                guesses INTEGER NOT NULL,
-                score INTEGER NOT NULL,
-                success BOOLEAN NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users (user_id)
-            )
-        ''')
-        
-        # Leaderboard cache table for performance
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS leaderboard_cache (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER NOT NULL,
-                period_type TEXT NOT NULL,  -- 'weekly', 'monthly', 'alltime'
-                period_start DATE NOT NULL,
-                total_score INTEGER NOT NULL,
-                games_played INTEGER NOT NULL,
-                average_score REAL NOT NULL,
-                rank INTEGER,
-                last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users (user_id),
-                UNIQUE(user_id, period_type, period_start)
-            )
-        ''')
-        
-        # Create indexes for better performance
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_games_user_date ON games(user_id, game_date)')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_games_date ON games(game_date)')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_leaderboard_period ON leaderboard_cache(period_type, period_start)')
-        
-        conn.commit()
-        conn.close()
+        if self.use_postgres:
+            with self._conn() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS users (
+                          user_id BIGINT PRIMARY KEY,
+                          username TEXT NOT NULL,
+                          display_name TEXT,
+                          first_seen TIMESTAMP DEFAULT NOW()
+                        )
+                        """
+                    )
+                    cursor.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS games (
+                          id BIGSERIAL PRIMARY KEY,
+                          user_id BIGINT NOT NULL REFERENCES users(user_id),
+                          wordle_number INTEGER NOT NULL,
+                          game_date DATE NOT NULL,
+                          guesses INTEGER NOT NULL,
+                          score INTEGER NOT NULL,
+                          success BOOLEAN NOT NULL,
+                          created_at TIMESTAMP DEFAULT NOW(),
+                          UNIQUE(user_id, wordle_number, game_date)
+                        )
+                        """
+                    )
+                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_games_user_date ON games(user_id, game_date)")
+                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_games_date ON games(game_date)")
+        else:
+            conn = self._conn()
+            cursor = conn.cursor()
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS users (
+                    user_id INTEGER PRIMARY KEY,
+                    username TEXT NOT NULL,
+                    display_name TEXT,
+                    first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS games (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    wordle_number INTEGER NOT NULL,
+                    game_date DATE NOT NULL,
+                    guesses INTEGER NOT NULL,
+                    score INTEGER NOT NULL,
+                    success BOOLEAN NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users (user_id),
+                    UNIQUE(user_id, wordle_number, game_date)
+                )
+            ''')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_games_user_date ON games(user_id, game_date)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_games_date ON games(game_date)')
+            conn.commit()
+            conn.close()
     
     def add_or_update_user(self, user_id: int, username: str, display_name: str = None):
         """Add a new user or update existing user info"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            INSERT OR REPLACE INTO users (user_id, username, display_name)
-            VALUES (?, ?, ?)
-        ''', (user_id, username, display_name))
-        
-        conn.commit()
-        conn.close()
+        query_sqlite = 'INSERT OR REPLACE INTO users (user_id, username, display_name) VALUES (?, ?, ?)'
+        query_pg = 'INSERT INTO users (user_id, username, display_name) VALUES (%s, %s, %s) ON CONFLICT (user_id) DO UPDATE SET username = EXCLUDED.username, display_name = EXCLUDED.display_name'
+        with self._conn() as conn:
+            with conn.cursor() as cursor:
+                if self.use_postgres:
+                    cursor.execute(query_pg, (user_id, username, display_name))
+                else:
+                    cursor.execute(query_sqlite, (user_id, username, display_name))
     
     def add_game_result(self, user_id: int, wordle_number: int, game_date: date, 
-                       guesses: int, success: bool):
+                        guesses: int, success: bool):
         """Add a game result to the database"""
         # Calculate score: guesses + 1 for success, 1 for failure, 0 for no attempt
         score = guesses + 1 if success else 1
-        
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        # Check if game already exists (prevent duplicates)
-        cursor.execute('''
-            SELECT id FROM games 
-            WHERE user_id = ? AND wordle_number = ? AND game_date = ?
-        ''', (user_id, wordle_number, game_date))
-        
-        if cursor.fetchone():
-            conn.close()
-            return False  # Game already exists
-        
-        cursor.execute('''
-            INSERT INTO games (user_id, wordle_number, game_date, guesses, score, success)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (user_id, wordle_number, game_date, guesses, score, success))
-        
-        conn.commit()
-        conn.close()
-        return True
+        with self._conn() as conn:
+            with conn.cursor() as cursor:
+                # Check duplicate
+                cursor.execute(
+                    self._q('SELECT id FROM games WHERE user_id = ? AND wordle_number = ? AND game_date = ?'),
+                    (user_id, wordle_number, game_date)
+                )
+                if cursor.fetchone():
+                    return False
+                cursor.execute(
+                    self._q('INSERT INTO games (user_id, wordle_number, game_date, guesses, score, success) VALUES (?, ?, ?, ?, ?, ?)'),
+                    (user_id, wordle_number, game_date, guesses, score, success)
+                )
+                return True
     
     def get_user_stats(self, user_id: int, period_type: str = 'alltime') -> Dict:
         """Get user statistics for a specific period"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._conn()
         cursor = conn.cursor()
-        
         # Calculate period boundaries
         today = date.today()
         if period_type == 'weekly':
@@ -120,8 +137,7 @@ class WordleDatabase:
             period_start = today.replace(day=1)
         else:  # alltime
             period_start = date(2020, 1, 1)  # Wordle started in 2021, but safe date
-        
-        cursor.execute('''
+        query = self._q('''
             SELECT 
                 COUNT(*) as games_played,
                 SUM(score) as total_score,
@@ -131,7 +147,8 @@ class WordleDatabase:
                 MAX(game_date) as last_game
             FROM games 
             WHERE user_id = ? AND game_date >= ?
-        ''', (user_id, period_start))
+        ''')
+        cursor.execute(query, (user_id, period_start))
         
         result = cursor.fetchone()
         conn.close()
@@ -156,7 +173,7 @@ class WordleDatabase:
     
     def get_leaderboard(self, period_type: str = 'alltime', limit: int = 10) -> List[Dict]:
         """Get leaderboard for a specific period"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._conn()
         cursor = conn.cursor()
         
         # Calculate period boundaries
@@ -168,7 +185,7 @@ class WordleDatabase:
         else:  # alltime
             period_start = date(2020, 1, 1)
         
-        cursor.execute('''
+        query = self._q('''
             SELECT 
                 u.user_id,
                 u.username,
@@ -180,10 +197,11 @@ class WordleDatabase:
             FROM users u
             LEFT JOIN games g ON u.user_id = g.user_id AND g.game_date >= ?
             GROUP BY u.user_id, u.username, u.display_name
-            HAVING games_played > 0
+            HAVING COUNT(g.id) > 0
             ORDER BY total_score DESC, average_score DESC
             LIMIT ?
-        ''', (period_start, limit))
+        ''')
+        cursor.execute(query, (period_start, limit))
         
         results = []
         for row in cursor.fetchall():
