@@ -3,6 +3,7 @@ from discord.ext import commands, tasks
 import asyncio
 import logging
 from datetime import datetime, date, timezone, timedelta
+import datetime as dt
 from typing import Optional, List, Dict
 import pytz
 
@@ -200,7 +201,7 @@ class WordleLeaderboardBot(commands.Bot):
         except Exception as e:
             logger.error(f"Error processing WordleBot message: {e}")
     
-    @tasks.loop(time=datetime.time(hour=AUTO_POST_HOUR, minute=AUTO_POST_MINUTE))
+    @tasks.loop(time=dt.time(hour=AUTO_POST_HOUR, minute=AUTO_POST_MINUTE))
     async def weekly_leaderboard_task(self):
         """Auto-post weekly leaderboard every Monday at 12:01 AM PT"""
         if not self.auto_post_enabled:
@@ -209,7 +210,7 @@ class WordleLeaderboardBot(commands.Bot):
         try:
             # Get current time in PT
             pt_tz = pytz.timezone('US/Pacific')
-            now_pt = datetime.now(pt_tz)
+            now_pt = dt.datetime.now(pt_tz)
             
             # Check if it's Monday
             if now_pt.weekday() != AUTO_POST_DAY:
