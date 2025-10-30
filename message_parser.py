@@ -1,6 +1,6 @@
 import re
 import logging
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from typing import List, Dict, Optional, Tuple
 from discord import Message, User, Member
 
@@ -14,14 +14,39 @@ class WordleMessageParser:
         self.score_pattern = re.compile(r"(\d+)/6")
         self.user_mention_pattern = re.compile(r"<@!?(\d+)>")
         
+    def _message_text(self, message: Message) -> str:
+        """Aggregate message content and embed text for parsing."""
+        parts = [message.content or ""]
+        try:
+            for emb in getattr(message, 'embeds', []) or []:
+                if emb.title:
+                    parts.append(str(emb.title))
+                if emb.description:
+                    parts.append(str(emb.description))
+                # Include simple fields as well
+                for field in getattr(emb, 'fields', []) or []:
+                    parts.append(f"{field.name}\n{field.value}")
+        except Exception:
+            pass
+        return "\n".join([p for p in parts if p])
+
     def is_wordlebot_message(self, message: Message) -> bool:
-        """Check if message is from WordleBot and contains results"""
-        # Check if message is from WordleBot (verified app)
-        if not (message.author.name == 'Wordle' and hasattr(message.author, 'verified') and message.author.verified):
+        """Heuristically determine if this message contains WordleBot results."""
+        text = self._message_text(message)
+        if not text:
             return False
-        
-        # Check if message contains results header
-        return self.results_header_pattern.search(message.content) is not None
+        has_header = self.results_header_pattern.search(text) is not None
+        has_wordle_no = self.wordle_number_pattern.search(text) is not None
+        # Prefer textual patterns over author identity to handle embeds/webhooks
+        if has_header and has_wordle_no:
+            return True
+        # Fallback: author name contains Wordle and there is a score pattern
+        try:
+            if (getattr(message.author, 'bot', False) and 'wordle' in message.author.name.lower() and self.score_pattern.search(text)):
+                return True
+        except Exception:
+            pass
+        return False
     
     def extract_wordle_number(self, content: str) -> Optional[int]:
         """Extract Wordle number from message content"""
@@ -33,7 +58,7 @@ class WordleMessageParser:
     def parse_player_results(self, message: Message) -> List[Dict]:
         """Parse individual player results from WordleBot message"""
         results = []
-        content = message.content
+        content = self._message_text(message)
         
         # Split content into lines and process each line
         lines = content.split('\n')
@@ -68,7 +93,8 @@ class WordleMessageParser:
         
         try:
             # Extract Wordle number
-            wordle_number = self.extract_wordle_number(message.content)
+            text = self._message_text(message)
+            wordle_number = self.extract_wordle_number(text)
             if not wordle_number:
                 logger.warning(f"Could not extract Wordle number from message: {message.id}")
                 return None
@@ -80,7 +106,7 @@ class WordleMessageParser:
                 return None
             
             # Determine game date (yesterday's results)
-            game_date = date.today()
+            game_date = date.today() - timedelta(days=1)
             
             return {
                 'wordle_number': wordle_number,
