@@ -550,12 +550,20 @@ class WordleLeaderboardBot(commands.Bot):
                 after_dt = datetime.now(timezone.utc) - timedelta(days=max(1, min(days, 60)))
                 processed_messages = 0
                 processed_results = 0
+                total_messages_checked = 0
+                skipped_messages = 0
 
-                async for msg in target_channel.history(limit=None, after=after_dt):
+                logger.info(f"Backfill: looking for messages after {after_dt} (going back {days} days)")
+                
+                async for msg in target_channel.history(limit=None, after=after_dt, oldest_first=False):
+                    total_messages_checked += 1
                     if self.parser.is_wordlebot_message(msg):
                         parsed = self.parser.parse_wordlebot_message(msg)
                         if not parsed:
+                            skipped_messages += 1
+                            logger.warning(f"Backfill: message {msg.id} detected as WordleBot but failed to parse")
                             continue
+                        logger.info(f"Backfill: processing message {msg.id} from {msg.created_at}, wordle_no={parsed.get('wordle_number')}, game_date={parsed.get('game_date')}")
                         for result in parsed['player_results']:
                             user_id = result['user_id']
                             guesses = result['guesses']
@@ -576,10 +584,20 @@ class WordleLeaderboardBot(commands.Bot):
                                     success=success
                                 ):
                                     processed_results += 1
+                                else:
+                                    logger.debug(f"Backfill: duplicate or failed insert for user {user_id} on {parsed['game_date']}")
+                            else:
+                                logger.warning(f"Backfill: could not find user {user_id}")
                         processed_messages += 1
+                    else:
+                        # Check if it's a bot message we're skipping
+                        if getattr(msg.author, 'bot', False) and 'wordle' in getattr(msg.author, 'name', '').lower():
+                            skipped_messages += 1
+                            logger.debug(f"Backfill: skipping non-WordleBot message {msg.id} from bot {msg.author.name}")
 
+                logger.info(f"Backfill complete: checked {total_messages_checked} messages, processed {processed_messages} WordleBot messages, skipped {skipped_messages}, added {processed_results} results")
                 await interaction.followup.send(
-                    f"✅ Backfill complete in #{target_channel.name}: processed {processed_messages} messages, added {processed_results} results.",
+                    f"✅ Backfill complete in #{target_channel.name}: processed {processed_messages} WordleBot messages, added {processed_results} results (checked {total_messages_checked} total messages).",
                     ephemeral=True
                 )
             except Exception as e:
