@@ -9,8 +9,9 @@ logger = logging.getLogger(__name__)
 class WordleMessageParser:
     def __init__(self):
         # Patterns based on the WordleBot message format
-        self.results_header_pattern = re.compile(r"Here are yesterday's results:", re.IGNORECASE)
-        self.wordle_number_pattern = re.compile(r"Wordle No\. (\d+)", re.IGNORECASE)
+        # Be tolerant of curly quotes, extra spaces, and punctuation variants
+        self.results_header_pattern = re.compile(r"Here are yesterday[’']s results:?", re.IGNORECASE)
+        self.wordle_number_pattern = re.compile(r"Wordle\s+No[\.:\s]+(\d+)", re.IGNORECASE)
         self.score_pattern = re.compile(r"(\d+)/6")
         self.user_mention_pattern = re.compile(r"<@!?(\d+)>")
         
@@ -19,13 +20,23 @@ class WordleMessageParser:
         parts = [message.content or ""]
         try:
             for emb in getattr(message, 'embeds', []) or []:
-                if emb.title:
+                if getattr(emb, 'title', None):
                     parts.append(str(emb.title))
-                if emb.description:
+                if getattr(emb, 'description', None):
                     parts.append(str(emb.description))
+                # Include author and footer text if present
+                author = getattr(emb, 'author', None)
+                if author and getattr(author, 'name', None):
+                    parts.append(str(author.name))
+                footer = getattr(emb, 'footer', None)
+                if footer and getattr(footer, 'text', None):
+                    parts.append(str(footer.text))
                 # Include simple fields as well
                 for field in getattr(emb, 'fields', []) or []:
-                    parts.append(f"{field.name}\n{field.value}")
+                    if getattr(field, 'name', None):
+                        parts.append(str(field.name))
+                    if getattr(field, 'value', None):
+                        parts.append(str(field.value))
         except Exception:
             pass
         return "\n".join([p for p in parts if p])
