@@ -1,6 +1,6 @@
 import os
 import sqlite3
-from datetime import date
+from datetime import date, timedelta
 from typing import List, Dict
 import logging
 from config import DATABASE_URL
@@ -135,7 +135,8 @@ class WordleDatabase:
         # Calculate period boundaries
         today = date.today()
         if period_type == 'weekly':
-            period_start = today.replace(day=today.day - today.weekday())
+            # Go back to Monday of current week (weekday() returns 0=Monday, 6=Sunday)
+            period_start = today - timedelta(days=today.weekday())
         elif period_type == 'monthly':
             period_start = today.replace(day=1)
         else:  # alltime
@@ -182,7 +183,8 @@ class WordleDatabase:
         # Calculate period boundaries
         today = date.today()
         if period_type == 'weekly':
-            period_start = today.replace(day=today.day - today.weekday())
+            # Go back to Monday of current week (weekday() returns 0=Monday, 6=Sunday)
+            period_start = today - timedelta(days=today.weekday())
         elif period_type == 'monthly':
             period_start = today.replace(day=1)
         else:  # alltime
@@ -208,14 +210,18 @@ class WordleDatabase:
         
         results = []
         for row in cursor.fetchall():
+            user_id = row[0]
+            streak_info = self.get_user_streak(user_id)
             results.append({
-                'user_id': row[0],
+                'user_id': user_id,
                 'username': row[1],
                 'display_name': row[2],
                 'games_played': row[3],
                 'total_score': row[4] or 0,
                 'average_score': round(row[5] or 0, 2),
-                'successful_games': row[6] or 0
+                'successful_games': row[6] or 0,
+                'current_streak': streak_info['current_streak'],
+                'longest_streak': streak_info['longest_streak']
             })
         
         conn.close()
@@ -228,3 +234,63 @@ class WordleDatabase:
             if entry['user_id'] == user_id:
                 return i
         return -1  # User not found in leaderboard
+    
+    def get_user_streak(self, user_id: int) -> Dict:
+        """Get user's current and longest streak"""
+        conn = self._conn()
+        cursor = conn.cursor()
+        
+        # Get all unique game dates for this user, ordered by date descending
+        query = self._q('''
+            SELECT DISTINCT game_date 
+            FROM games 
+            WHERE user_id = ? 
+            ORDER BY game_date DESC
+        ''')
+        cursor.execute(query, (user_id,))
+        dates = [row[0] for row in cursor.fetchall()]
+        
+        conn.close()
+        
+        if not dates:
+            return {'current_streak': 0, 'longest_streak': 0}
+        
+        # Calculate current streak (count consecutive days backwards from most recent game date)
+        current_streak = 0
+        unique_dates = sorted(set(dates), reverse=True)  # Most recent first
+        
+        if unique_dates:
+            expected_date = unique_dates[0]  # Most recent game date
+            
+            for game_date in unique_dates:
+                if game_date == expected_date:
+                    current_streak += 1
+                    expected_date = game_date - timedelta(days=1)
+                else:
+                    # Gap found, streak ends
+                    break
+        
+        # Calculate longest streak (find longest consecutive sequence)
+        longest_streak = 0
+        if dates:
+            unique_dates = sorted(set(dates))
+            if unique_dates:
+                current_run = 1
+                longest_streak = 1
+                
+                for i in range(1, len(unique_dates)):
+                    prev_date = unique_dates[i - 1]
+                    curr_date = unique_dates[i]
+                    
+                    if (curr_date - prev_date).days == 1:
+                        # Consecutive day
+                        current_run += 1
+                        longest_streak = max(longest_streak, current_run)
+                    else:
+                        # Gap found, reset current run
+                        current_run = 1
+        
+        return {
+            'current_streak': current_streak,
+            'longest_streak': longest_streak
+        }

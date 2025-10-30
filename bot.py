@@ -58,14 +58,14 @@ class LeaderboardView(discord.ui.View):
                 # Add leaderboard entries
                 for i, entry in enumerate(leaderboard_data, 1):
                     medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}."
-                    
+                    streak_display = f"🔥 {entry.get('current_streak', 0)}" if entry.get('current_streak', 0) > 0 else ""
                     embed.add_field(
-                        name=f"{medal} {entry['display_name'] or entry['username']}",
+                        name=f"{medal} {entry['display_name'] or entry['username']} {streak_display}",
                         value=f"Score: {entry['total_score']} | Games: {entry['games_played']} | Avg: {entry['average_score']}",
                         inline=False
                     )
             
-            embed.set_footer(text="Click buttons to switch periods • Score = 8 - guesses; X = 1; no attempt = 0")
+            embed.set_footer(text="Click buttons to switch periods • Score = 8 - guesses; X = 1; no attempt = 0 • 🔥 = current streak")
             
             # Update the message
             await interaction.response.edit_message(embed=embed, view=self)
@@ -183,19 +183,20 @@ class WordleLeaderboardBot(commands.Bot):
                     )
                     
                     # Add game result
-                    if self.db.add_game_result(
+                    inserted = self.db.add_game_result(
                         user_id=user_id,
                         wordle_number=parsed_data['wordle_number'],
                         game_date=parsed_data['game_date'],
                         guesses=guesses,
                         success=success
-                    ):
+                    )
+                    if inserted:
                         processed_count += 1
-                        logger.info(f"Added game result for user {user.name}: {guesses}/6 on {parsed_data['game_date']} (Wordle {parsed_data['wordle_number']})")
+                        logger.info(f"✓ Added game result for user {user.name} (id={user_id}): {guesses}/6 on {parsed_data['game_date']} (Wordle {parsed_data['wordle_number']})")
                     else:
-                        logger.warning(f"Game result already exists for user {user.name}")
+                        logger.warning(f"✗ Game result already exists or failed for user {user.name} (id={user_id}): {guesses}/6 on {parsed_data['game_date']} (Wordle {parsed_data['wordle_number']})")
                 else:
-                    logger.warning(f"Could not find user with ID: {user_id}")
+                    logger.warning(f"✗ Could not find user with ID: {user_id} in guild {message.guild.name if message.guild else 'None'}")
             
             if processed_count > 0:
                 logger.info(f"Processed {processed_count} game results from WordleBot message")
@@ -278,14 +279,14 @@ class WordleLeaderboardBot(commands.Bot):
                 # Add leaderboard entries
                 for i, entry in enumerate(leaderboard_data, 1):
                     medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}."
-                    
+                    streak_display = f"🔥 {entry.get('current_streak', 0)}" if entry.get('current_streak', 0) > 0 else ""
                     embed.add_field(
-                        name=f"{medal} {entry['display_name'] or entry['username']}",
+                        name=f"{medal} {entry['display_name'] or entry['username']} {streak_display}",
                         value=f"Score: {entry['total_score']} | Games: {entry['games_played']} | Avg: {entry['average_score']}",
                         inline=False
                     )
             
-            embed.set_footer(text="Auto-posted every Monday at 12:01 AM PT • Score = 8 - guesses; X = 1; no attempt = 0")
+            embed.set_footer(text="Auto-posted every Monday at 12:01 AM PT • Score = 8 - guesses; X = 1; no attempt = 0 • 🔥 = current streak")
             await channel.send(embed=embed, view=view)
             
         except Exception as e:
@@ -327,14 +328,14 @@ class WordleLeaderboardBot(commands.Bot):
                     # Add leaderboard entries
                     for i, entry in enumerate(leaderboard_data, 1):
                         medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}."
-                        
+                        streak_display = f"🔥 {entry.get('current_streak', 0)}" if entry.get('current_streak', 0) > 0 else ""
                         embed.add_field(
-                            name=f"{medal} {entry['display_name'] or entry['username']}",
+                            name=f"{medal} {entry['display_name'] or entry['username']} {streak_display}",
                             value=f"Score: {entry['total_score']} | Games: {entry['games_played']} | Avg: {entry['average_score']}",
                             inline=False
                         )
                 
-                embed.set_footer(text="Click buttons to switch periods • Score = 8 - guesses; X = 1; no attempt = 0")
+                embed.set_footer(text="Click buttons to switch periods • Score = 8 - guesses; X = 1; no attempt = 0 • 🔥 = current streak")
                 await interaction.response.send_message(embed=embed, view=view)
                 
             except Exception as e:
@@ -358,6 +359,7 @@ class WordleLeaderboardBot(commands.Bot):
                 user_id = interaction.user.id
                 stats = self.db.get_user_stats(user_id, period)
                 rank = self.db.get_user_rank(user_id, period)
+                streak = self.db.get_user_streak(user_id)
                 
                 if stats['games_played'] == 0:
                     await interaction.response.send_message(
@@ -376,6 +378,12 @@ class WordleLeaderboardBot(commands.Bot):
                 embed.add_field(name="Total Score", value=stats['total_score'], inline=True)
                 embed.add_field(name="Average Score", value=stats['average_score'], inline=True)
                 embed.add_field(name="Success Rate", value=f"{stats['successful_games']}/{stats['games_played']}", inline=True)
+                
+                # Add streak information
+                streak_text = f"🔥 {streak['current_streak']}"
+                if streak['longest_streak'] > streak['current_streak']:
+                    streak_text += f" (Best: {streak['longest_streak']})"
+                embed.add_field(name="Streak", value=streak_text, inline=True)
                 
                 if rank > 0:
                     embed.add_field(name="Rank", value=f"#{rank}", inline=True)
@@ -457,14 +465,14 @@ class WordleLeaderboardBot(commands.Bot):
                     # Add leaderboard entries
                     for i, entry in enumerate(leaderboard_data, 1):
                         medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}."
-                        
+                        streak_display = f"🔥 {entry.get('current_streak', 0)}" if entry.get('current_streak', 0) > 0 else ""
                         embed.add_field(
-                            name=f"{medal} {entry['display_name'] or entry['username']}",
+                            name=f"{medal} {entry['display_name'] or entry['username']} {streak_display}",
                             value=f"Score: {entry['total_score']} | Games: {entry['games_played']} | Avg: {entry['average_score']}",
                             inline=False
                         )
                 
-                embed.set_footer(text="Click buttons to switch periods • Score = 8 - guesses; X = 1; no attempt = 0")
+                embed.set_footer(text="Click buttons to switch periods • Score = 8 - guesses; X = 1; no attempt = 0 • 🔥 = current streak")
                 await interaction.channel.send(embed=embed, view=view)
                 await interaction.followup.send("✅ Interactive leaderboard posted!", ephemeral=True)
                 

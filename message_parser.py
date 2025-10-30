@@ -15,6 +15,8 @@ class WordleMessageParser:
         # Accept 0-6 or X for failures
         self.score_pattern = re.compile(r"([0-6]|X)/6", re.IGNORECASE)
         self.user_mention_pattern = re.compile(r"<@!?(\d+)>")
+        # Plain username pattern (e.g., @Niket) - captures username without @
+        self.plain_username_pattern = re.compile(r"@(\w+)")
         
     def _message_text(self, message: Message) -> str:
         """Aggregate message content and embed text for parsing."""
@@ -71,6 +73,7 @@ class WordleMessageParser:
         """Parse individual player results from WordleBot message"""
         results = []
         content = self._message_text(message)
+        guild = getattr(message, 'guild', None)
         
         # Split content into lines and process each line
         lines = content.split('\n')
@@ -78,24 +81,54 @@ class WordleMessageParser:
         for line in lines:
             # Look for user mentions in the line
             user_mentions = self.user_mention_pattern.findall(line)
+            # Also look for plain usernames (e.g., @Niket)
+            plain_usernames = self.plain_username_pattern.findall(line)
             
-            if user_mentions:
-                # Extract score from the line
-                score_match = self.score_pattern.search(line)
-                if score_match:
-                    raw = score_match.group(1)
-                    if raw.upper() == 'X':
-                        guesses = 6
-                        success = False
-                    else:
-                        guesses = int(raw)
-                        success = guesses <= 6
-                    # One score applies to all mentions on this line
-                    for uid in user_mentions:
-                        try:
-                            user_id = int(uid)
-                        except Exception:
-                            continue
+            # Extract score from the line
+            score_match = self.score_pattern.search(line)
+            if not score_match:
+                continue
+                
+            raw = score_match.group(1)
+            if raw.upper() == 'X':
+                guesses = 6
+                success = False
+            else:
+                guesses = int(raw)
+                success = guesses <= 6
+            
+            # Process Discord mentions (<@...>)
+            for uid in user_mentions:
+                try:
+                    user_id = int(uid)
+                    results.append({
+                        'user_id': user_id,
+                        'guesses': guesses,
+                        'success': success,
+                        'raw_line': line.strip()
+                    })
+                except Exception:
+                    continue
+            
+            # Process plain usernames (@username) - resolve to user ID via guild lookup
+            if plain_usernames and guild:
+                for username in plain_usernames:
+                    user_id = None
+                    try:
+                        # Try exact match first
+                        member = guild.get_member_named(username)
+                        if member:
+                            user_id = member.id
+                        else:
+                            # Try case-insensitive search
+                            for m in guild.members:
+                                if m.name.lower() == username.lower() or (m.nick and m.nick.lower() == username.lower()):
+                                    user_id = m.id
+                                    break
+                    except Exception:
+                        pass
+                    
+                    if user_id:
                         results.append({
                             'user_id': user_id,
                             'guesses': guesses,
