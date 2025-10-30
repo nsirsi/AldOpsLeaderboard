@@ -167,6 +167,10 @@ class WordleLeaderboardBot(commands.Bot):
                 user_id = result['user_id']
                 guesses = result['guesses']
                 success = result['success']
+                logger.info(
+                    "process:result wordle_no=%s game_date=%s user_id=%s guesses=%s success=%s",
+                    parsed_data['wordle_number'], parsed_data['game_date'], user_id, guesses, success
+                )
                 
                 # Get user info
                 user = self.parser.get_user_from_mention(message, user_id)
@@ -187,7 +191,7 @@ class WordleLeaderboardBot(commands.Bot):
                         success=success
                     ):
                         processed_count += 1
-                        logger.info(f"Added game result for user {user.name}: {guesses}/6")
+                        logger.info(f"Added game result for user {user.name}: {guesses}/6 on {parsed_data['game_date']} (Wordle {parsed_data['wordle_number']})")
                     else:
                         logger.warning(f"Game result already exists for user {user.name}")
                 else:

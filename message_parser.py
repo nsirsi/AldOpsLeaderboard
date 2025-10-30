@@ -105,7 +105,15 @@ class WordleMessageParser:
         try:
             # Extract Wordle number
             text = self._message_text(message)
+            preview = (text[:240] + '…') if len(text) > 240 else text
+            logger.info(
+                "parse:start id=%s created_at=%s preview=%s",
+                getattr(message, 'id', 'n/a'),
+                getattr(message, 'created_at', 'n/a'),
+                preview.replace('\n', ' | ')
+            )
             wordle_number = self.extract_wordle_number(text)
+            logger.info("parse:wordle_no id=%s value=%s", getattr(message, 'id', 'n/a'), wordle_number)
             
             # Parse player results
             player_results = self.parse_player_results(message)
@@ -133,6 +141,12 @@ class WordleMessageParser:
             if not wordle_number:
                 logger.warning(f"Could not extract or derive Wordle number from message: {message.id}")
                 return None
+            logger.info(
+                "parse:done id=%s wordle_no=%s game_date=%s players=%s",
+                getattr(message, 'id', 'n/a'), wordle_number, game_date, len(player_results)
+            )
+            for r in player_results:
+                logger.info("parse:player id=%s user=%s guesses=%s success=%s", getattr(message, 'id', 'n/a'), r.get('user_id'), r.get('guesses'), r.get('success'))
             
             return {
                 'wordle_number': wordle_number,
